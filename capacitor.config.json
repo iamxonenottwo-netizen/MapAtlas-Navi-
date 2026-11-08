@@ -1,5 +1,5 @@
 {
   "appId": "com.mapatlas.navi",
   "appName": "MapAtlas Navi",
-  "webDir": "www"
+  "webDir": "dist"
 }
