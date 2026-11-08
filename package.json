@@ -1,14 +1,18 @@
 {
   "name": "mapatlas-navi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "scripts": {},
+  "type": "module",
+  "scripts": {
+    "build": "vite build"
+  },
   "dependencies": {
     "@capacitor/android": "^6.2.1",
     "@capacitor/core": "^6.2.1",
     "@capacitor/geolocation": "^6.0.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.1"
+    "@capacitor/cli": "^6.2.1",
+    "vite": "^6.4.1"
   }
 }
