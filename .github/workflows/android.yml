@@ -24,6 +24,8 @@ jobs:
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Install Node dependencies
         run: npm install
+      - name: Build bundled web app
+        run: npm run build
       - name: Add Android platform
         run: npx cap add android
       - name: Sync Capacitor
