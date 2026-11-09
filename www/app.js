@@ -8,6 +8,19 @@ map.addControl(new maplibregl.NavigationControl({showCompass:false,showZoom:fals
 function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='th-TH';u.rate=1;speechSynthesis.speak(u)}}
 function notice(t){$('notice').textContent=t;$('notice').style.display='block';clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('notice').style.display='none',3500)}
 function markerEl(txt,cls){const e=document.createElement('div');e.className=cls||'';e.textContent=txt;return e}
+const landmarkData=[
+ {name:'ตึกช้าง',coords:[100.56861,13.82528],icon:'🐘',kind:'elephant'},
+ {name:'ใบหยก 2',coords:[100.540556,13.754167],icon:'🏙️',kind:'tower'},
+ {name:'สถานีกลางกรุงเทพอภิวัฒน์',coords:[100.54167,13.805],icon:'🚉',kind:'station'}
+];
+function addLandmarkMarkers(){
+ landmarkData.forEach(place=>{
+  const el=document.createElement('div');el.className='landmark landmark-'+place.kind;
+  el.innerHTML='<span class="landmark-icon">'+place.icon+'</span><span class="landmark-name">'+place.name+'</span>';
+  new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat(place.coords).addTo(map);
+ });
+}
+
 function setStatus(a,b,arrow){$('turnDistance').textContent=a;$('turnText').textContent=b;$('turnArrow').textContent=arrow||'⬆'}
 function distM(a,b){const R=6371000,p=Math.PI/180,dp=(b[1]-a[1])*p,dl=(b[0]-a[0])*p,x=Math.sin(dp/2)**2+Math.cos(a[1]*p)*Math.cos(b[1]*p)*Math.sin(dl/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
 function fmtDist(m){return m>=1000?(m/1000).toFixed(1)+' กม.':Math.round(m)+' ม.'}
@@ -15,7 +28,8 @@ function maneuver(s){const m=s.maneuver||{},type=m.type||'continue',mod=m.modifi
 function addRouteLayer(){if(!map.getSource('routeLine'))map.addSource('routeLine',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:[]}}});if(!map.getLayer('routeGlow'))map.addLayer({id:'routeGlow',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#00c8ff','line-width':13,'line-opacity':.38,'line-blur':2}});if(!map.getLayer('routeLineLayer'))map.addLayer({id:'routeLineLayer',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#087dff','line-width':6,'line-opacity':.98}})}
 map.on('load',()=>{
  const layers=map.getStyle().layers||[];const label=layers.find(l=>l.type==='symbol'&&l.layout&&l.layout['text-field']);
- if(map.getSource('openmaptiles'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffb36e','industrial','#a8c5ed','residential','#f5d28c','retail','#ef9bc1','#b7d9bd'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':.98}},label?label.id:undefined);
+ if(map.getSource('openmaptiles'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffbd80','industrial','#a9c8ef','residential','#ffe0a3','retail','#f5a9cc','school','#f7d56b','hospital','#f28f8f','#b9dfc0'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
+ addLandmarkMarkers();
  addRouteLayer();setStatus('พร้อมนำทาง','เลือกจุดหมายจากช่องค้นหาหรือแตะแผนที่');
 });
 map.on('error',e=>console.warn('Map error',e.error));
