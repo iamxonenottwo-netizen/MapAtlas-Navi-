@@ -199,6 +199,7 @@ async function requestRoute(from,to){
 async function getRoute(recalc){
  if(!dest)return notice('เลือกจุดหมายก่อน');
  if(routeBusy)return;
+ routeBusy=true;
  let Geo;
  try{
   Geo=await requestGeoPermission();
@@ -215,9 +216,9 @@ async function getRoute(recalc){
  }catch(e){
   const m=gpsError(e);
   setStatus('ยังใช้ GPS ไม่ได้',m);
+  routeBusy=false;
   return notice('ยังใช้ GPS ไม่ได้: '+m);
  }
- routeBusy=true;
  setStatus('กำลังคำนวณเส้นทาง…','กำลังเชื่อมต่อบริการแผนที่');
  try{
   const result=await requestRoute([me.lon,me.lat],[dest.lon,dest.lat]);
