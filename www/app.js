@@ -167,7 +167,29 @@ async function locate(){
 }
 function onPosition(p){me={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};if(!userMarker)userMarker=new maplibregl.Marker({element:markerEl('🏍️','bike'),anchor:'bottom'}).setLngLat([me.lon,me.lat]).addTo(map);else userMarker.setLngLat([me.lon,me.lat]);if(route)updateNavigation()}
 $('gps').onclick=locate;
-async function getRoute(recalc){if(!dest)return notice('เลือกจุดหมายก่อน');if(routeBusy)return;let Geo;try{Geo=await requestGeoPermission();if(!me){setStatus('กำลังค้นหา GPS…','รอสัญญาณตำแหน่ง');const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:30000,maximumAge:0});onPosition(p)}if(watchId===null){watchId=await Geo.watchPosition({enableHighAccuracy:true,maximumAge:1000,timeout:20000},(p,e)=>{if(p)onPosition(p);else if(e){console.warn('GPS watch error',e);notice('GPS ขาดการเชื่อมต่อ: '+gpsError(e))}})}}catch(e){const m=gpsError(e);setStatus('ยังใช้ GPS ไม่ได้',m);return notice('ยังใช้ GPS ไม่ได้: '+m)}if(routeBusy)return;routeBusy=true;setStatus('กำลังคำนวณเส้นทาง…','รอสักครู่');try{const url='https://router.project-osrm.org/route/v1/driving/'+me.lon+','+me.lat+';'+dest.lon+','+dest.lat+'?overview=full&geometries=geojson&steps=true';const r=await fetch(url);if(!r.ok)throw Error('route');const d=await r.json();if(d.code!=='Ok'||!d.routes?.length)throw Error('no route');route=d.routes[0];steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);stepIndex=Math.min(1,Math.max(0,steps.length-1));map.getSource('routeLine').setData({type:'Feature',properties:{},geometry:route.geometry});$('eta').textContent=Math.max(1,Math.round(route.duration/60))+' นาที';$('distance').textContent=fmtDist(route.distance);map.fitBounds([[Math.min(me.lon,dest.lon),Math.min(me.lat,dest.lat)],[Math.max(me.lon,dest.lon),Math.max(me.lat,dest.lat)]],{padding:{top:260,bottom:190,left:55,right:55},maxZoom:17,duration:900});setStatus(recalc?'คำนวณเส้นทางใหม่แล้ว':'เส้นทางพร้อมแล้ว','เส้นทางทดลอง · ตรวจป้ายและข้อห้ามก่อนขับ');notice('ข้อจำกัด: เส้นทางนี้ใช้โปรไฟล์รถยนต์ ยังไม่ใช่ระบบนำทางมอเตอร์ไซค์โดยเฉพาะ');updateNavigation(true);}catch(e){route=null;setStatus('คำนวณเส้นทางไม่ได้','ตรวจอินเทอร์เน็ต หรือเลือกจุดหมายใหม่');notice('บริการเส้นทางสาธารณะไม่ตอบสนอง ลองอีกครั้ง');}finally{routeBusy=false}}
+async function requestRoute(from,to){
+ const bases=[
+  'https://router.project-osrm.org/route/v1/driving/',
+  'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+ ];
+ const failures=[];
+ for(const base of bases){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),18000);
+  try{
+   const coords=from[0]+','+from[1]+';'+to[0]+','+to[1];
+   const response=await fetch(base+coords+'?overview=full&geometries=geojson&steps=true',{signal:controller.signal});
+   if(!response.ok)throw Error('HTTP '+response.status);
+   const data=await response.json();
+   if(data.code!=='Ok'||!data.routes?.length)throw Error(data.message||data.code||'ไม่พบเส้นทาง');
+   return data.routes[0];
+  }catch(e){
+   failures.push((base.includes('openstreetmap.de')?'เซิร์ฟเวอร์สำรอง: ':'เซิร์ฟเวอร์หลัก: ')+(e.name==='AbortError'?'หมดเวลารอ':(e.message||'เชื่อมต่อไม่ได้')));
+  }finally{clearTimeout(timer)}
+ }
+ throw Error(failures.join(' / '));
+}
+async function getRoute(recalc){if(!dest)return notice('เลือกจุดหมายก่อน');if(routeBusy)return;let Geo;try{Geo=await requestGeoPermission();if(!me){setStatus('กำลังค้นหา GPS…','รอสัญญาณตำแหน่ง');const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:30000,maximumAge:0});onPosition(p)}if(watchId===null){watchId=await Geo.watchPosition({enableHighAccuracy:true,maximumAge:1000,timeout:20000},(p,e)=>{if(p)onPosition(p);else if(e){console.warn('GPS watch error',e);notice('GPS ขาดการเชื่อมต่อ: '+gpsError(e))}})}}catch(e){const m=gpsError(e);setStatus('ยังใช้ GPS ไม่ได้',m);return notice('ยังใช้ GPS ไม่ได้: '+m)}if(routeBusy)return;routeBusy=true;setStatus('กำลังคำนวณเส้นทาง…','รอสักครู่');try{route=await requestRoute([me.lon,me.lat],[dest.lon,dest.lat]);steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);stepIndex=Math.min(1,Math.max(0,steps.length-1));map.getSource('routeLine').setData({type:'Feature',properties:{},geometry:route.geometry});$('eta').textContent=Math.max(1,Math.round(route.duration/60))+' นาที';$('distance').textContent=fmtDist(route.distance);map.fitBounds([[Math.min(me.lon,dest.lon),Math.min(me.lat,dest.lat)],[Math.max(me.lon,dest.lon),Math.max(me.lat,dest.lat)]],{padding:{top:260,bottom:190,left:55,right:55},maxZoom:17,duration:900});setStatus(recalc?'คำนวณเส้นทางใหม่แล้ว':'เส้นทางพร้อมแล้ว','เส้นทางทดลอง · ตรวจป้ายและข้อห้ามก่อนขับ');notice('ข้อจำกัด: เส้นทางนี้ใช้โปรไฟล์รถยนต์ ยังไม่ใช่ระบบนำทางมอเตอร์ไซค์โดยเฉพาะ');updateNavigation(true);}catch(e){route=null;if(map.getSource('routeLine'))map.getSource('routeLine').setData({type:'Feature',properties:{},geometry:{type:'LineString',coordinates:[]}});const reason=String(e?.message||e||'ไม่ทราบสาเหตุ');setStatus('คำนวณเส้นทางไม่ได้',reason);notice('คำนวณเส้นทางไม่สำเร็จ: '+reason);}finally{routeBusy=false}}
 function updateNavigation(initial){if(!route||!me)return;const here=[me.lon,me.lat];let near=Infinity;for(const c of route.geometry.coordinates){const d=distM(here,c);if(d<near)near=d}
 if(near>85&&Date.now()-lastReroute>12000){lastReroute=Date.now();getRoute(true);return}
 let s=steps[stepIndex];if(!s)return;let target=s.maneuver?.location||s.geometry?.coordinates?.[0];let left=target?distM(here,target):0;
