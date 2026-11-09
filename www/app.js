@@ -2,7 +2,7 @@ import { Geolocation } from '@capacitor/geolocation';
 import { Capacitor } from '@capacitor/core';
 (()=> {
 const $=id=>document.getElementById(id);
-let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,gpsBusy=false,lastReroute=0,is3D=true,mapReady=false;
+let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,gpsBusy=false,lastReroute=0,is3D=true,mapReady=false,lastCameraAt=0,lastCameraBearing=null;
 const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/bright',center:[100.5342,13.7456],zoom:15.5,pitch:62,bearing:-18,antialias:true});
 map.addControl(new maplibregl.NavigationControl({showCompass:false,showZoom:false}),'top-right');
 function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='th-TH';u.rate=1;speechSynthesis.speak(u)}}
@@ -191,7 +191,32 @@ async function locate(){
   console.error('MapAtlas GPS error',e);
  }finally{gpsBusy=false}
 }
-function onPosition(p){me={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};if(!userMarker)userMarker=new maplibregl.Marker({element:markerEl('🏍️','bike'),anchor:'bottom'}).setLngLat([me.lon,me.lat]).addTo(map);else userMarker.setLngLat([me.lon,me.lat]);if(route)updateNavigation()}
+function onPosition(p){
+ const previous=me;
+ me={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};
+ if(!userMarker)userMarker=new maplibregl.Marker({element:markerEl('🏍️','bike'),anchor:'bottom'}).setLngLat([me.lon,me.lat]).addTo(map);
+ else userMarker.setLngLat([me.lon,me.lat]);
+ if(route){
+  // Live navigation camera: keep the rider in view and move the map as GPS changes.
+  let bearing=Number.isFinite(p.coords.heading)&&p.coords.heading>=0?p.coords.heading:null;
+  if(bearing===null&&previous){
+   const d=distM([previous.lon,previous.lat],[me.lon,me.lat]);
+   if(d>4){
+    const a=previous.lat*Math.PI/180,b=me.lat*Math.PI/180,dl=(me.lon-previous.lon)*Math.PI/180;
+    const y=Math.sin(dl)*Math.cos(b),x=Math.cos(a)*Math.sin(b)-Math.sin(a)*Math.cos(b)*Math.cos(dl);
+    bearing=(Math.atan2(y,x)*180/Math.PI+360)%360;
+   }
+  }
+  const now=Date.now();
+  if(now-lastCameraAt>650){
+   const camera={center:[me.lon,me.lat],zoom:Math.max(map.getZoom(),17),pitch:is3D?62:0,duration:550};
+   if(bearing!==null){lastCameraBearing=bearing;camera.bearing=bearing}
+   else if(lastCameraBearing!==null)camera.bearing=lastCameraBearing;
+   map.easeTo(camera);lastCameraAt=now;
+  }
+  updateNavigation();
+ }
+}
 $('gps').onclick=locate;
 async function requestRoute(from,to){
  const valid=p=>Array.isArray(p)&&p.length===2&&Number.isFinite(p[0])&&Number.isFinite(p[1])&&Math.abs(p[0])<=180&&Math.abs(p[1])<=90;
@@ -268,7 +293,10 @@ async function getRoute(recalc){
   const arrival=new Date(Date.now()+route.duration*1000);
   $('eta').textContent=arrival.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
   $('distance').textContent=fmtDist(route.distance);
-  map.fitBounds([[Math.min(me.lon,dest.lon),Math.min(me.lat,dest.lat)],[Math.max(me.lon,dest.lon),Math.max(me.lat,dest.lat)]],{padding:{top:260,bottom:190,left:55,right:55},maxZoom:17,duration:900});
+  // Enter live navigation view focused on the rider; the route remains drawn ahead.
+  lastCameraAt=Date.now();
+  lastCameraBearing=Number.isFinite(p.coords.heading)&&p.coords.heading>=0?p.coords.heading:null;
+  map.easeTo({center:[me.lon,me.lat],zoom:17.2,pitch:is3D?62:0,duration:900,...(lastCameraBearing!==null?{bearing:lastCameraBearing}:{})});
   setStatus(recalc?'คำนวณเส้นทางใหม่แล้ว':'เส้นทางพร้อมแล้ว','ประมาณ '+mins+' นาที · '+dest.name);
   notice('คำนวณเส้นทางสำเร็จ · ถึงประมาณ '+arrival.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})+' · ใช้โปรไฟล์รถยนต์ ไม่ใช่มอเตอร์ไซค์เฉพาะ');
   updateNavigation(true);
