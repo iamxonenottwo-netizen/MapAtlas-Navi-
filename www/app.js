@@ -1,7 +1,8 @@
 import { Geolocation } from '@capacitor/geolocation';
+import { Capacitor } from '@capacitor/core';
 (()=> {
 const $=id=>document.getElementById(id);
-let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,lastReroute=0,is3D=true;
+let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,gpsBusy=false,lastReroute=0,is3D=true;
 const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/bright',center:[100.5342,13.7456],zoom:15.5,pitch:62,bearing:-18,antialias:true});
 map.addControl(new maplibregl.NavigationControl({showCompass:false,showZoom:false}),'top-right');
 function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='th-TH';u.rate=1;speechSynthesis.speak(u)}}
@@ -23,10 +24,54 @@ document.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>sel
 map.on('click',e=>{if(route)return;selectDest(e.lngLat.lng,e.lngLat.lat,'ตำแหน่งบนแผนที่')});
 async function searchPlace(){const q=$('placeSearch').value.trim();if(!q)return notice('พิมพ์ชื่อสถานที่ก่อน');notice('กำลังค้นหาสถานที่…');try{const u='https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=th&q='+encodeURIComponent(q);const r=await fetch(u);if(!r.ok)throw Error('search');const a=await r.json();if(!a.length)return notice('ไม่พบสถานที่นี้ ลองใช้ชื่ออื่น');selectDest(+a[0].lon,+a[0].lat,a[0].name||q)}catch(e){notice('ค้นหาไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่')}}
 $('searchBtn').onclick=searchPlace;$('placeSearch').addEventListener('keydown',e=>{if(e.key==='Enter')searchPlace()});
-async function getGeoPlugin(){return Geolocation}async function requestGeoPermission(){const Geo=await getGeoPlugin();const p=await Geo.requestPermissions();if(p.location!=='granted'&&p.coarseLocation!=='granted')throw Error('Android ยังไม่อนุญาตตำแหน่ง: '+JSON.stringify(p));return Geo}async function locate(){try{notice('กำลังขอสิทธิ์เข้าถึงตำแหน่ง GPS…');const Geo=await requestGeoPermission();notice('ได้รับสิทธิ์แล้ว กำลังค้นหาตำแหน่ง…');const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:20000});onPosition(p);map.flyTo({center:[me.lon,me.lat],zoom:17.5,pitch:is3D?62:0});notice('พบตำแหน่งของคุณแล้ว · ความคลาดเคลื่อนประมาณ '+Math.round(p.coords.accuracy)+' เมตร')}catch(e){notice('GPS: '+(e.message||'ไม่สามารถขอตำแหน่งได้')+' · ตรวจการอนุญาตตำแหน่งในตั้งค่า Android')}}
+async function requestGeoPermission(){
+ if(Capacitor.isNativePlatform()){
+  let p=await Geolocation.checkPermissions();
+  if(p.location!=='granted'&&p.coarseLocation!=='granted')p=await Geolocation.requestPermissions({permissions:['location']});
+  if(p.location!=='granted'&&p.coarseLocation!=='granted')throw Error('ยังไม่ได้อนุญาตตำแหน่ง (location: '+p.location+', coarse: '+p.coarseLocation+')');
+  return {
+   getCurrentPosition:o=>Geolocation.getCurrentPosition(o),
+   watchPosition:(o,cb)=>Geolocation.watchPosition(o,cb),
+   clearWatch:id=>Geolocation.clearWatch({id})
+  };
+ }
+ if(!navigator.geolocation)throw Error('อุปกรณ์นี้ไม่รองรับ Geolocation');
+ return {
+  getCurrentPosition:o=>new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,o)),
+  watchPosition:(o,cb)=>Promise.resolve(navigator.geolocation.watchPosition(p=>cb(p),e=>cb(null,e),o)),
+  clearWatch:id=>navigator.geolocation.clearWatch(id)
+ };
+}
+function gpsError(e){
+ const msg=String(e?.message||e||'ไม่ทราบสาเหตุ');
+ if(/location services|location provider|provider disabled|location disabled/i.test(msg))return 'GPS ในเครื่องปิดอยู่ กรุณาเปิดบริการตำแหน่ง (Location)';
+ if(/permission|denied|not authorized/i.test(msg))return 'ไม่ได้รับอนุญาตตำแหน่ง กรุณาตั้งค่าแอปเป็นอนุญาตขณะใช้แอป';
+ if(/timeout|timed out/i.test(msg))return 'ค้นหาพิกัดนานเกินไป ลองออกไปที่โล่งและเปิดตำแหน่งแบบแม่นยำ';
+ return msg;
+}
+async function locate(){
+ if(gpsBusy)return;
+ gpsBusy=true;
+ try{
+  setStatus('กำลังค้นหา GPS…','กำลังตรวจสอบสิทธิ์และรับพิกัด');
+  notice('กำลังตรวจสอบสิทธิ์ GPS…');
+  const Geo=await requestGeoPermission();
+  setStatus('กำลังค้นหาตำแหน่ง…','รอสัญญาณ GPS');
+  const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:30000,maximumAge:0});
+  onPosition(p);
+  map.flyTo({center:[me.lon,me.lat],zoom:17.5,pitch:is3D?62:0});
+  setStatus('พบตำแหน่งแล้ว','ความแม่นยำประมาณ ±'+Math.round(p.coords.accuracy)+' เมตร');
+  notice('GPS ใช้งานได้ · '+me.lat.toFixed(6)+', '+me.lon.toFixed(6)+' · คลาดเคลื่อน ±'+Math.round(p.coords.accuracy)+' ม.');
+ }catch(e){
+  const m=gpsError(e);
+  setStatus('ยังระบุตำแหน่งไม่ได้',m);
+  notice('GPS: '+m);
+  console.error('MapAtlas GPS error',e);
+ }finally{gpsBusy=false}
+}
 function onPosition(p){me={lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy};if(!userMarker)userMarker=new maplibregl.Marker({element:markerEl('🏍️','bike'),anchor:'bottom'}).setLngLat([me.lon,me.lat]).addTo(map);else userMarker.setLngLat([me.lon,me.lat]);if(route)updateNavigation()}
 $('gps').onclick=locate;
-async function getRoute(recalc){if(!dest)return notice('เลือกจุดหมายก่อน');if(routeBusy)return;let Geo;try{Geo=await requestGeoPermission();if(!me){const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:20000});onPosition(p)}}catch(e){return notice('ยังใช้ GPS ไม่ได้: '+(e.message||'กรุณาอนุญาตตำแหน่ง'))}if(routeBusy)return;routeBusy=true;setStatus('กำลังคำนวณเส้นทาง…','รอสักครู่');try{const url='https://router.project-osrm.org/route/v1/driving/'+me.lon+','+me.lat+';'+dest.lon+','+dest.lat+'?overview=full&geometries=geojson&steps=true';const r=await fetch(url);if(!r.ok)throw Error('route');const d=await r.json();if(d.code!=='Ok'||!d.routes?.length)throw Error('no route');route=d.routes[0];steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);stepIndex=Math.min(1,Math.max(0,steps.length-1));map.getSource('routeLine').setData({type:'Feature',properties:{},geometry:route.geometry});$('eta').textContent=Math.max(1,Math.round(route.duration/60))+' นาที';$('distance').textContent=fmtDist(route.distance);map.fitBounds([[Math.min(me.lon,dest.lon),Math.min(me.lat,dest.lat)],[Math.max(me.lon,dest.lon),Math.max(me.lat,dest.lat)]],{padding:{top:260,bottom:190,left:55,right:55},maxZoom:17,duration:900});setStatus(recalc?'คำนวณเส้นทางใหม่แล้ว':'เส้นทางพร้อมแล้ว','เส้นทางทดลอง · ตรวจป้ายและข้อห้ามก่อนขับ');notice('ข้อจำกัด: เส้นทางนี้ใช้โปรไฟล์รถยนต์ ยังไม่ใช่ระบบนำทางมอเตอร์ไซค์โดยเฉพาะ');updateNavigation(true);if(watchId===null){Geo.watchPosition({enableHighAccuracy:true,maximumAge:1000,timeout:15000},(p,e)=>{if(p)onPosition(p);else if(e)notice('GPS ขาดการเชื่อมต่อ: '+e.message)}).then(id=>watchId=id).catch(e=>notice('เริ่มติดตาม GPS ไม่ได้: '+e.message));}}catch(e){route=null;setStatus('คำนวณเส้นทางไม่ได้','ตรวจอินเทอร์เน็ต หรือเลือกจุดหมายใหม่');notice('บริการเส้นทางสาธารณะไม่ตอบสนอง ลองอีกครั้ง');}finally{routeBusy=false}}
+async function getRoute(recalc){if(!dest)return notice('เลือกจุดหมายก่อน');if(routeBusy)return;let Geo;try{Geo=await requestGeoPermission();if(!me){setStatus('กำลังค้นหา GPS…','รอสัญญาณตำแหน่ง');const p=await Geo.getCurrentPosition({enableHighAccuracy:true,timeout:30000,maximumAge:0});onPosition(p)}if(watchId===null){watchId=await Geo.watchPosition({enableHighAccuracy:true,maximumAge:1000,timeout:20000},(p,e)=>{if(p)onPosition(p);else if(e){console.warn('GPS watch error',e);notice('GPS ขาดการเชื่อมต่อ: '+gpsError(e))}})}}catch(e){const m=gpsError(e);setStatus('ยังใช้ GPS ไม่ได้',m);return notice('ยังใช้ GPS ไม่ได้: '+m)}if(routeBusy)return;routeBusy=true;setStatus('กำลังคำนวณเส้นทาง…','รอสักครู่');try{const url='https://router.project-osrm.org/route/v1/driving/'+me.lon+','+me.lat+';'+dest.lon+','+dest.lat+'?overview=full&geometries=geojson&steps=true';const r=await fetch(url);if(!r.ok)throw Error('route');const d=await r.json();if(d.code!=='Ok'||!d.routes?.length)throw Error('no route');route=d.routes[0];steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);stepIndex=Math.min(1,Math.max(0,steps.length-1));map.getSource('routeLine').setData({type:'Feature',properties:{},geometry:route.geometry});$('eta').textContent=Math.max(1,Math.round(route.duration/60))+' นาที';$('distance').textContent=fmtDist(route.distance);map.fitBounds([[Math.min(me.lon,dest.lon),Math.min(me.lat,dest.lat)],[Math.max(me.lon,dest.lon),Math.max(me.lat,dest.lat)]],{padding:{top:260,bottom:190,left:55,right:55},maxZoom:17,duration:900});setStatus(recalc?'คำนวณเส้นทางใหม่แล้ว':'เส้นทางพร้อมแล้ว','เส้นทางทดลอง · ตรวจป้ายและข้อห้ามก่อนขับ');notice('ข้อจำกัด: เส้นทางนี้ใช้โปรไฟล์รถยนต์ ยังไม่ใช่ระบบนำทางมอเตอร์ไซค์โดยเฉพาะ');updateNavigation(true);}catch(e){route=null;setStatus('คำนวณเส้นทางไม่ได้','ตรวจอินเทอร์เน็ต หรือเลือกจุดหมายใหม่');notice('บริการเส้นทางสาธารณะไม่ตอบสนอง ลองอีกครั้ง');}finally{routeBusy=false}}
 function updateNavigation(initial){if(!route||!me)return;const here=[me.lon,me.lat];let near=Infinity;for(const c of route.geometry.coordinates){const d=distM(here,c);if(d<near)near=d}
 if(near>85&&Date.now()-lastReroute>12000){lastReroute=Date.now();getRoute(true);return}
 let s=steps[stepIndex];if(!s)return;let target=s.maneuver?.location||s.geometry?.coordinates?.[0];let left=target?distM(here,target):0;
@@ -34,8 +79,8 @@ if(left<28&&stepIndex<steps.length-1){stepIndex++;s=steps[stepIndex];target=s.ma
 const [ic,txt,ar]=maneuver(s);setStatus(left<30?'ถึงจุดเลี้ยวแล้ว':'อีก '+fmtDist(left),txt,ar);if(initial||left<220&&left>170)say('อีก '+Math.round(left/10)*10+' เมตร '+txt);
 if(stepIndex>=steps.length-1&&left<25){setStatus('ถึงจุดหมายแล้ว','เดินทางโดยสวัสดิภาพ','🏁');say('ถึงจุดหมายแล้ว');route=null}
 }
-$('start').onclick=()=>{if(!dest)return notice('เลือกจุดหมายก่อน');if(!me){locate();notice('รอ GPS ระบุตำแหน่ง แล้วกดเริ่มนำทางอีกครั้ง');return}getRoute(false)};
-$('stop').onclick=()=>{route=null;steps=[];stepIndex=0;if(watchId!==null){getGeoPlugin().then(Geo=>Geo.clearWatch({id:watchId})).catch(()=>{});watchId=null}if(map.getSource('routeLine'))map.getSource('routeLine').setData({type:'Feature',geometry:{type:'LineString',coordinates:[]}});$('eta').textContent='—';$('distance').textContent='—';setStatus('ยกเลิกเส้นทางแล้ว','เลือกจุดหมายเพื่อเริ่มใหม่')};
+$('start').onclick=()=>{getRoute(false)};
+$('stop').onclick=()=>{route=null;steps=[];stepIndex=0;if(watchId!==null){requestGeoPermission().then(Geo=>Geo.clearWatch(watchId)).catch(()=>{});watchId=null}if(map.getSource('routeLine'))map.getSource('routeLine').setData({type:'Feature',geometry:{type:'LineString',coordinates:[]}});$('eta').textContent='—';$('distance').textContent='—';setStatus('ยกเลิกเส้นทางแล้ว','เลือกจุดหมายเพื่อเริ่มใหม่')};
 $('voice').onclick=()=>{voiceOn=!voiceOn;$('voice').textContent=voiceOn?'🔊':'🔇';if(!voiceOn&&'speechSynthesis'in window)speechSynthesis.cancel();notice(voiceOn?'เปิดเสียงนำทาง':'ปิดเสียงนำทาง')};
 $('tilt').onclick=()=>{is3D=!is3D;map.easeTo({pitch:is3D?62:0,duration:700});$('tilt').textContent=is3D?'3D':'2D'};
 $('zoomIn').onclick=()=>map.zoomTo(map.getZoom()+1);$('zoomOut').onclick=()=>map.zoomTo(map.getZoom()-1);$('compass').onclick=()=>map.easeTo({bearing:0,pitch:is3D?62:0,duration:600});
