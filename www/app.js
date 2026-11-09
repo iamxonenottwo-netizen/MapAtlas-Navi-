@@ -236,7 +236,7 @@ async function requestRoute(from,to){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),12000);
   try{
-   const response=await fetch(provider.url+'?alternatives=true&steps=true&overview=full&geometries=geojson&continue_straight=true&generate_hints=false&skip_waypoints=false&radiuses=100;100',{signal:controller.signal,cache:'no-store'});
+   const response=await fetch(provider.url+'?alternatives=true&steps=true&overview=full&geometries=geojson&continue_straight=true&generate_hints=false&skip_waypoints=false',{signal:controller.signal,cache:'no-store'});
    if(!response.ok)throw Error('HTTP '+response.status);
    const data=await response.json();
    if(data.code!=='Ok'||!Array.isArray(data.routes)||!data.routes.length)throw Error(data.message||data.code||'ไม่พบเส้นทาง');
