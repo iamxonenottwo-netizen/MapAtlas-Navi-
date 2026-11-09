@@ -2,7 +2,7 @@ import { Geolocation } from '@capacitor/geolocation';
 import { Capacitor } from '@capacitor/core';
 (()=> {
 const $=id=>document.getElementById(id);
-let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,gpsBusy=false,lastReroute=0,is3D=true;
+let me=null,dest=null,route=null,steps=[],stepIndex=0,watchId=null,userMarker=null,destMarker=null,voiceOn=true,routeBusy=false,gpsBusy=false,lastReroute=0,is3D=true,mapReady=false;
 const map=new maplibregl.Map({container:'map',style:'https://tiles.openfreemap.org/styles/bright',center:[100.5342,13.7456],zoom:15.5,pitch:62,bearing:-18,antialias:true});
 map.addControl(new maplibregl.NavigationControl({showCompass:false,showZoom:false}),'top-right');
 function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='th-TH';u.rate=1;speechSynthesis.speak(u)}}
@@ -108,6 +108,7 @@ function fmtDist(m){return m>=1000?(m/1000).toFixed(1)+' กม.':Math.round(m)+
 function maneuver(s){const m=s.maneuver||{},type=m.type||'continue',mod=m.modifier||'';if(type==='arrive')return ['🏁','ถึงจุดหมายแล้ว','🏁'];if(type==='roundabout'||type==='rotary')return ['↻','เข้าวงเวียน','↻'];if(mod.includes('left'))return ['↰','เลี้ยวซ้าย','⬅'];if(mod.includes('right'))return ['↱','เลี้ยวขวา','➡'];if(type==='uturn')return ['↶','กลับรถ','↶'];if(type==='depart')return ['⬆','มุ่งหน้าตรงไป','⬆'];return ['⬆','ตรงไป','⬆']}
 function addRouteLayer(){if(!map.getSource('routeLine'))map.addSource('routeLine',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:[]}}});if(!map.getLayer('routeGlow'))map.addLayer({id:'routeGlow',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#00c8ff','line-width':13,'line-opacity':.38,'line-blur':2}});if(!map.getLayer('routeLineLayer'))map.addLayer({id:'routeLineLayer',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#087dff','line-width':6,'line-opacity':.98}})}
 map.on('load',()=>{
+ mapReady=true;
  // Create the navigation source/layers FIRST. Optional 3D decoration must never block routing.
  try{
   addRouteLayer();
@@ -228,11 +229,16 @@ async function getRoute(recalc){
  }
  setStatus('กำลังคำนวณเส้นทาง…','กำลังเชื่อมต่อบริการแผนที่');
  try{
-  // Recover the route source if map styling finished after the initial load callback.
-  if(!map.getSource('routeLine')){
-   if(!map.isStyleLoaded())throw Error('แผนที่ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่');
-   addRouteLayer();
+  // Wait for the initial style load, not for every map tile/3D building to finish downloading.
+  if(!mapReady){
+   await new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(Error('แผนที่ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่')),15000);
+    map.once('load',()=>{clearTimeout(timer);mapReady=true;resolve()});
+   });
   }
+  // Recover if an optional 3D layer previously interrupted route-layer setup.
+  if(!map.getSource('routeLine'))addRouteLayer();
+  if(!map.getSource('routeLine'))throw Error('สร้างชั้นแสดงเส้นทางไม่สำเร็จ');
   const result=await requestRoute([me.lon,me.lat],[dest.lon,dest.lat]);
   route=result;
   steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);
