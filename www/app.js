@@ -9,15 +9,32 @@ function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel()
 function notice(t){$('notice').textContent=t;$('notice').style.display='block';clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('notice').style.display='none',3500)}
 function markerEl(txt,cls){const e=document.createElement('div');e.className=cls||'';e.textContent=txt;return e}
 const landmarkData=[
- {name:'ตึกช้าง',coords:[100.56861,13.82528],icon:'',kind:'elephant'},
+ {name:'ตึกช้าง',coords:[100.56861,13.82528],icon:'🐘',kind:'elephant'},
  {name:'ใบหยก 2',coords:[100.540556,13.754167],icon:'🏙️',kind:'tower'},
- {name:'สถานีกลางกรุงเทพอภิวัฒน์',coords:[100.54167,13.805],icon:'🚉',kind:'station'}
+ {name:'สถานีกลางกรุงเทพอภิวัฒน์',coords:[100.54167,13.805],icon:'🚉',kind:'station'},
+ {name:'สวนลุมพินี',coords:[100.5417,13.7307],icon:'🌳',kind:'park'},
+ {name:'สวนเบญจกิติ',coords:[100.5582,13.7252],icon:'🌿',kind:'park'},
+ {name:'สวนจตุจักร',coords:[100.5549,13.8024],icon:'🌲',kind:'park'},
+ {name:'SCB Park',coords:[100.5687,13.8280],icon:'🏢',kind:'tower'}
+];
+const cityPropData=[
+ {coords:[100.5409,13.7310],icon:'🌳',kind:'tree'},{coords:[100.5425,13.7318],icon:'🌳',kind:'tree'},{coords:[100.5434,13.7299],icon:'🌴',kind:'tree'},{coords:[100.5402,13.7296],icon:'🌷',kind:'flower'},
+ {coords:[100.5575,13.7258],icon:'🌳',kind:'tree'},{coords:[100.5590,13.7248],icon:'🌴',kind:'tree'},{coords:[100.5572,13.7239],icon:'🪑',kind:'bench'},{coords:[100.5595,13.7261],icon:'💡',kind:'lamp'},
+ {coords:[100.5538,13.8022],icon:'🌳',kind:'tree'},{coords:[100.5558,13.8014],icon:'🌴',kind:'tree'},{coords:[100.5564,13.8030],icon:'🌷',kind:'flower'},{coords:[100.5536,13.8033],icon:'🪑',kind:'bench'}
 ];
 function addLandmarkMarkers(){
  landmarkData.forEach(place=>{
   const el=document.createElement('div');el.className='landmark landmark-'+place.kind;
   el.innerHTML=(place.icon?'<span class="landmark-icon">'+place.icon+'</span>':'')+'<span class="landmark-name">'+place.name+'</span>';
   new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat(place.coords).addTo(map);
+ });
+}
+function addCityPropsMarkers(){
+ cityPropData.forEach((prop,i)=>{
+  const el=document.createElement('div');el.className='city-prop city-prop-'+prop.kind;
+  el.innerHTML='<span>'+prop.icon+'</span>';
+  el.setAttribute('aria-label',({tree:'ต้นไม้',flower:'แปลงดอกไม้',bench:'ม้านั่ง',lamp:'ไฟถนน'})[prop.kind]||'ของตกแต่งเมือง');
+  new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat(prop.coords).addTo(map);
  });
 }
 
@@ -117,9 +134,10 @@ map.on('load',()=>{
  // Keep optional map styling isolated so a 3D/style error cannot disable navigation.
  try{
   const layers=map.getStyle().layers||[];const label=layers.find(l=>l.type==='symbol'&&l.layout&&l.layout['text-field']);
-  if(map.getSource('openmaptiles')&&!map.getLayer('mapatlas-cartoon-buildings'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffbd80','industrial','#a9c8ef','residential','#ffe0a3','retail','#f5a9cc','school','#f7d56b','hospital','#f28f8f','#b9dfc0'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
+  if(map.getSource('openmaptiles')&&!map.getLayer('mapatlas-cartoon-buildings'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffc58d','industrial','#b7d4ef','residential','#c5e8c9','retail','#f4b7d5','school','#ffe08a','hospital','#f4a2a2','#bfe5c9'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],7],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':0.98,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
+  if(map.getSource('openmaptiles')&&!map.getLayer('mapatlas-cartoon-building-edges'))map.addLayer({id:'mapatlas-cartoon-building-edges',source:'openmaptiles','source-layer':'building',type:'line',minzoom:14,paint:{'line-color':'#638b78','line-width':['interpolate',['linear'],['zoom'],14,0.45,18,1.1],'line-opacity':0.62}});
  }catch(e){console.warn('MapAtlas cartoon building layer skipped; navigation remains available',e)}
- try{addLandmarkMarkers()}catch(e){console.warn('MapAtlas landmark markers skipped',e)}
+ try{addLandmarkMarkers();addCityPropsMarkers()}catch(e){console.warn('MapAtlas cartoon city props skipped',e)}
  try{if(!map.getLayer('mapatlas-elephant-3d'))map.addLayer(createElephantBuildingLayer())}catch(e){console.warn('MapAtlas 3D landmark layer skipped; navigation remains available',e)}
 });
 map.on('error',e=>console.warn('Map error',e.error));
