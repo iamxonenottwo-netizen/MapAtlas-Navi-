@@ -26,7 +26,7 @@ function createElephantBuildingLayer(){
  const origin=maplibregl.MercatorCoordinate.fromLngLat({lng:100.56861,lat:13.82528},0);
  const unit=origin.meterInMercatorCoordinateUnits();
  const verts=[];
- const palette={front:[0.77,0.84,0.88],side:[0.55,0.67,0.74],top:[0.91,0.94,0.95],glass:[0.12,0.36,0.53],dark:[0.08,0.19,0.27],trim:[0.96,0.79,0.43]};
+ const palette={front:[0.48,0.76,0.80],side:[0.20,0.48,0.58],top:[0.78,0.91,0.86],glass:[0.035,0.22,0.40],dark:[0.025,0.075,0.15],trim:[1.00,0.72,0.20],highlight:[0.94,0.97,0.83],shadow:[0.12,0.23,0.25]};
  function tri(a,b,c,col){for(const p of [a,b,c])verts.push(origin.x+p[0]*unit,origin.y-p[1]*unit,p[2]*unit,col[0],col[1],col[2])}
  function quad(a,b,c,d,col){tri(a,b,c,col);tri(a,c,d,col)}
  function box(x,y,z,w,d,h,colors){
@@ -39,12 +39,17 @@ function createElephantBuildingLayer(){
   quad([x0,y1,z0],[x1,y1,z0],[x1,y0,z0],[x0,y0,z0],colors.dark);
  }
  const concrete={front:palette.front,side:palette.side,top:palette.top};
+ // Soft cartoon-style cast shadow, offset behind the building footprint.
+ quad([-86,34,0.18],[86,34,0.18],[102,62,0.18],[-70,62,0.18],palette.shadow);
  // Three real tower masses, with the upper connecting residential bridge.
  box(0,0,0,145,38,8,{front:palette.side,side:palette.dark,top:palette.top});
  box(-47,0,8,34,34,94,concrete);
  box(0,0,8,34,34,94,concrete);
  box(47,0,8,34,34,94,concrete);
  box(0,0,78,145,38,24,{front:palette.front,side:palette.side,top:palette.top});
+ // Sunlit roof rim and warm horizontal cartoon accent bands.
+ box(0,-19.4,100.5,146,2.2,2.2,{front:palette.highlight,side:palette.trim,top:palette.highlight});
+ for(const cx of [-47,0,47]){box(cx,-19.1,35,34.5,1.8,1.25,{front:palette.highlight,side:palette.trim,top:palette.highlight});box(cx,-19.1,68,34.5,1.8,1.25,{front:palette.highlight,side:palette.trim,top:palette.highlight});}
  // Repeated cartoon glass windows on the visible south and east-facing elevations.
  for(const cx of [-47,0,47]){
   for(let floor=0;floor<25;floor++){
