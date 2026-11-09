@@ -9,16 +9,92 @@ function say(t){if(voiceOn&&'speechSynthesis'in window){speechSynthesis.cancel()
 function notice(t){$('notice').textContent=t;$('notice').style.display='block';clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('notice').style.display='none',3500)}
 function markerEl(txt,cls){const e=document.createElement('div');e.className=cls||'';e.textContent=txt;return e}
 const landmarkData=[
- {name:'ตึกช้าง',coords:[100.56861,13.82528],icon:'🐘',kind:'elephant'},
+ {name:'ตึกช้าง',coords:[100.56861,13.82528],icon:'',kind:'elephant'},
  {name:'ใบหยก 2',coords:[100.540556,13.754167],icon:'🏙️',kind:'tower'},
  {name:'สถานีกลางกรุงเทพอภิวัฒน์',coords:[100.54167,13.805],icon:'🚉',kind:'station'}
 ];
 function addLandmarkMarkers(){
  landmarkData.forEach(place=>{
   const el=document.createElement('div');el.className='landmark landmark-'+place.kind;
-  el.innerHTML='<span class="landmark-icon">'+place.icon+'</span><span class="landmark-name">'+place.name+'</span>';
+  el.innerHTML=(place.icon?'<span class="landmark-icon">'+place.icon+'</span>':'')+'<span class="landmark-name">'+place.name+'</span>';
   new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat(place.coords).addTo(map);
  });
+}
+
+
+function createElephantBuildingLayer(){
+ const origin=maplibregl.MercatorCoordinate.fromLngLat({lng:100.56861,lat:13.82528},0);
+ const unit=origin.meterInMercatorCoordinateUnits();
+ const verts=[];
+ const palette={front:[0.77,0.84,0.88],side:[0.55,0.67,0.74],top:[0.91,0.94,0.95],glass:[0.12,0.36,0.53],dark:[0.08,0.19,0.27],trim:[0.96,0.79,0.43]};
+ function tri(a,b,c,col){for(const p of [a,b,c])verts.push(origin.x+p[0]*unit,origin.y-p[1]*unit,p[2]*unit,col[0],col[1],col[2])}
+ function quad(a,b,c,d,col){tri(a,b,c,col);tri(a,c,d,col)}
+ function box(x,y,z,w,d,h,colors){
+  const x0=x-w/2,x1=x+w/2,y0=y-d/2,y1=y+d/2,z0=z,z1=z+h;
+  quad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],colors.front);
+  quad([x1,y1,z0],[x0,y1,z0],[x0,y1,z1],[x1,y1,z1],colors.side);
+  quad([x0,y1,z0],[x0,y0,z0],[x0,y0,z1],[x0,y1,z1],colors.side);
+  quad([x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1],colors.front);
+  quad([x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],colors.top);
+  quad([x0,y1,z0],[x1,y1,z0],[x1,y0,z0],[x0,y0,z0],colors.dark);
+ }
+ const concrete={front:palette.front,side:palette.side,top:palette.top};
+ // Three real tower masses, with the upper connecting residential bridge.
+ box(0,0,0,145,38,8,{front:palette.side,side:palette.dark,top:palette.top});
+ box(-47,0,8,34,34,94,concrete);
+ box(0,0,8,34,34,94,concrete);
+ box(47,0,8,34,34,94,concrete);
+ box(0,0,78,145,38,24,{front:palette.front,side:palette.side,top:palette.top});
+ // Repeated cartoon glass windows on the visible south and east-facing elevations.
+ for(const cx of [-47,0,47]){
+  for(let floor=0;floor<25;floor++){
+   const z=12+floor*3.35;
+   for(let col=0;col<5;col++){
+    const x=cx-12+col*6;
+    box(x,-17.25,z,3.4,.34,2.15,{front:palette.glass,side:palette.dark,top:palette.glass});
+    box(cx+17.25,-11+col*5.5,z,.34,3.1,2.15,{front:palette.glass,side:palette.dark,top:palette.glass});
+   }
+  }
+ }
+ // Balcony/ear-like horizontal fins and the two circular eye windows.
+ box(-64,-1,63,18,42,2,{front:palette.trim,side:palette.side,top:palette.top});
+ box(64,-1,63,18,42,2,{front:palette.trim,side:palette.side,top:palette.top});
+ function disc(cx,cy,cz,r,color){
+  const c=[cx,cy,cz],n=24;
+  for(let i=0;i<n;i++){
+   const a=i*Math.PI*2/n,b=(i+1)*Math.PI*2/n;
+   tri(c,[cx+Math.cos(a)*r,cy,cz+Math.sin(a)*r],[cx+Math.cos(b)*r,cy,cz+Math.sin(b)*r],color);
+  }
+ }
+ disc(-10,-17.55,88,4.1,palette.dark);disc(-10,-17.8,88,2.8,palette.glass);
+ disc(10,-17.55,88,4.1,palette.dark);disc(10,-17.8,88,2.8,palette.glass);
+ // Short ivory-colored projecting tusks at the front of the trunk mass.
+ box(-14,-22,58,4,12,3,{front:palette.trim,side:palette.trim,top:palette.top});
+ box(14,-22,58,4,12,3,{front:palette.trim,side:palette.trim,top:palette.top});
+ return {
+  id:'mapatlas-elephant-3d',type:'custom',renderingMode:'3d',
+  onAdd(mapRef,gl){
+   const vs='attribute vec3 a_pos;attribute vec3 a_color;uniform mat4 u_matrix;varying vec3 v_color;void main(){gl_Position=u_matrix*vec4(a_pos,1.0);v_color=a_color;}';
+   const fs='precision mediump float;varying vec3 v_color;void main(){gl_FragColor=vec4(v_color,1.0);}';
+   const compile=(type,src)=>{const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(sh));return sh};
+   this.program=gl.createProgram();gl.attachShader(this.program,compile(gl.VERTEX_SHADER,vs));gl.attachShader(this.program,compile(gl.FRAGMENT_SHADER,fs));gl.linkProgram(this.program);
+   if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(this.program));
+   this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(verts),gl.STATIC_DRAW);
+   this.count=verts.length/6;this.map=mapRef;
+  },
+  render(gl,matrix){
+   if(!this.program)return;
+   gl.useProgram(this.program);gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
+   const p=gl.getAttribLocation(this.program,'a_pos'),c=gl.getAttribLocation(this.program,'a_color');
+   gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,3,gl.FLOAT,false,24,0);
+   gl.enableVertexAttribArray(c);gl.vertexAttribPointer(c,3,gl.FLOAT,false,24,12);
+   gl.uniformMatrix4fv(gl.getUniformLocation(this.program,'u_matrix'),false,matrix);
+   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.CULL_FACE);
+   gl.drawArrays(gl.TRIANGLES,0,this.count);
+   gl.bindBuffer(gl.ARRAY_BUFFER,null);
+  },
+  onRemove(mapRef,gl){if(this.buffer)gl.deleteBuffer(this.buffer);if(this.program)gl.deleteProgram(this.program)}
+ };
 }
 
 function setStatus(a,b,arrow){$('turnDistance').textContent=a;$('turnText').textContent=b;$('turnArrow').textContent=arrow||'⬆'}
@@ -30,6 +106,7 @@ map.on('load',()=>{
  const layers=map.getStyle().layers||[];const label=layers.find(l=>l.type==='symbol'&&l.layout&&l.layout['text-field']);
  if(map.getSource('openmaptiles'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffbd80','industrial','#a9c8ef','residential','#ffe0a3','retail','#f5a9cc','school','#f7d56b','hospital','#f28f8f','#b9dfc0'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
  addLandmarkMarkers();
+ if(!map.getLayer('mapatlas-elephant-3d'))map.addLayer(createElephantBuildingLayer());
  addRouteLayer();setStatus('พร้อมนำทาง','เลือกจุดหมายจากช่องค้นหาหรือแตะแผนที่');
 });
 map.on('error',e=>console.warn('Map error',e.error));
