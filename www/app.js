@@ -209,10 +209,14 @@ function onPosition(p){
   }
   const now=Date.now();
   if(now-lastCameraAt>650){
-   const camera={center:[me.lon,me.lat],zoom:Math.max(map.getZoom(),17),pitch:is3D?62:0,duration:550};
+   const camera={center:[me.lon,me.lat],zoom:Math.max(map.getZoom(),17),pitch:is3D?58:0};
    if(bearing!==null){lastCameraBearing=bearing;camera.bearing=bearing}
    else if(lastCameraBearing!==null)camera.bearing=lastCameraBearing;
-   map.easeTo(camera);lastCameraAt=now;
+   // GPS has already supplied a fresh fix. Jumping directly avoids stacked/cancelled
+   // easing animations that can make the map appear frozen during continuous tracking.
+   map.stop();
+   map.jumpTo(camera);
+   lastCameraAt=now;
   }
   updateNavigation();
  }
