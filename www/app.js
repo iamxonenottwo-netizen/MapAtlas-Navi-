@@ -108,11 +108,18 @@ function fmtDist(m){return m>=1000?(m/1000).toFixed(1)+' กม.':Math.round(m)+
 function maneuver(s){const m=s.maneuver||{},type=m.type||'continue',mod=m.modifier||'';if(type==='arrive')return ['🏁','ถึงจุดหมายแล้ว','🏁'];if(type==='roundabout'||type==='rotary')return ['↻','เข้าวงเวียน','↻'];if(mod.includes('left'))return ['↰','เลี้ยวซ้าย','⬅'];if(mod.includes('right'))return ['↱','เลี้ยวขวา','➡'];if(type==='uturn')return ['↶','กลับรถ','↶'];if(type==='depart')return ['⬆','มุ่งหน้าตรงไป','⬆'];return ['⬆','ตรงไป','⬆']}
 function addRouteLayer(){if(!map.getSource('routeLine'))map.addSource('routeLine',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:[]}}});if(!map.getLayer('routeGlow'))map.addLayer({id:'routeGlow',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#00c8ff','line-width':13,'line-opacity':.38,'line-blur':2}});if(!map.getLayer('routeLineLayer'))map.addLayer({id:'routeLineLayer',type:'line',source:'routeLine',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#087dff','line-width':6,'line-opacity':.98}})}
 map.on('load',()=>{
- const layers=map.getStyle().layers||[];const label=layers.find(l=>l.type==='symbol'&&l.layout&&l.layout['text-field']);
- if(map.getSource('openmaptiles'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffbd80','industrial','#a9c8ef','residential','#ffe0a3','retail','#f5a9cc','school','#f7d56b','hospital','#f28f8f','#b9dfc0'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
- addLandmarkMarkers();
- if(!map.getLayer('mapatlas-elephant-3d'))map.addLayer(createElephantBuildingLayer());
- addRouteLayer();setStatus('พร้อมนำทาง','เลือกจุดหมายจากช่องค้นหาหรือแตะแผนที่');
+ // Create the navigation source/layers FIRST. Optional 3D decoration must never block routing.
+ try{
+  addRouteLayer();
+  setStatus('พร้อมนำทาง','เลือกจุดหมายจากช่องค้นหาหรือแตะแผนที่');
+ }catch(e){console.error('MapAtlas route layer initialization failed',e);notice('เตรียมระบบเส้นทางไม่สำเร็จ: '+(e.message||e))}
+ // Keep optional map styling isolated so a 3D/style error cannot disable navigation.
+ try{
+  const layers=map.getStyle().layers||[];const label=layers.find(l=>l.type==='symbol'&&l.layout&&l.layout['text-field']);
+  if(map.getSource('openmaptiles')&&!map.getLayer('mapatlas-cartoon-buildings'))map.addLayer({id:'mapatlas-cartoon-buildings',source:'openmaptiles','source-layer':'building',type:'fill-extrusion',minzoom:13,paint:{'fill-extrusion-color':['match',['get','class'],'commercial','#ffbd80','industrial','#a9c8ef','residential','#ffe0a3','retail','#f5a9cc','school','#f7d56b','hospital','#f28f8f','#b9dfc0'],'fill-extrusion-height':['max',['coalesce',['get','render_height'],0],6],'fill-extrusion-base':['coalesce',['get','render_min_height'],0],'fill-extrusion-opacity':1,'fill-extrusion-vertical-gradient':true}},label?label.id:undefined);
+ }catch(e){console.warn('MapAtlas cartoon building layer skipped; navigation remains available',e)}
+ try{addLandmarkMarkers()}catch(e){console.warn('MapAtlas landmark markers skipped',e)}
+ try{if(!map.getLayer('mapatlas-elephant-3d'))map.addLayer(createElephantBuildingLayer())}catch(e){console.warn('MapAtlas 3D landmark layer skipped; navigation remains available',e)}
 });
 map.on('error',e=>console.warn('Map error',e.error));
 function selectDest(lon,lat,name){dest={lon,lat,name:name||'จุดหมาย'};$('placeSearch').value=dest.name;if(destMarker)destMarker.remove();destMarker=new maplibregl.Marker({element:markerEl('📍','bike')}).setLngLat([lon,lat]).addTo(map);map.flyTo({center:[lon,lat],zoom:16.5,pitch:is3D?62:0,duration:900});setStatus('เลือกแล้ว: '+dest.name,'กดเริ่มนำทางเมื่อพร้อม');}
@@ -221,6 +228,11 @@ async function getRoute(recalc){
  }
  setStatus('กำลังคำนวณเส้นทาง…','กำลังเชื่อมต่อบริการแผนที่');
  try{
+  // Recover the route source if map styling finished after the initial load callback.
+  if(!map.getSource('routeLine')){
+   if(!map.isStyleLoaded())throw Error('แผนที่ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่');
+   addRouteLayer();
+  }
   const result=await requestRoute([me.lon,me.lat],[dest.lon,dest.lat]);
   route=result;
   steps=route.legs.flatMap(l=>l.steps||[]).filter(s=>s.maneuver);
