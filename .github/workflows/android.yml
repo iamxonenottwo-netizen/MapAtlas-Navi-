@@ -33,6 +33,9 @@ jobs:
       - name: Add Android location permissions
         run: |
           sed -i '/<manifest/a\\    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />' android/app/src/main/AndroidManifest.xml
+      - name: Increase Gradle wrapper download timeout
+        run: |
+          sed -i '/^distributionUrl=/a networkTimeout=120000' android/gradle/wrapper/gradle-wrapper.properties
       - name: Build debug APK
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug
       - uses: actions/upload-artifact@v4
