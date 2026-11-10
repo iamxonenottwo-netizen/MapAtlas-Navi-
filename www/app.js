@@ -231,24 +231,33 @@ async function requestRoute(from,to){
   {name:'OSRM หลัก',url:'https://router.project-osrm.org/route/v1/driving/'+coords},
   {name:'OSM สำรอง',url:'https://routing.openstreetmap.de/routed-car/route/v1/driving/'+coords}
  ];
+ // Try the last-known working 100 m road-snap constraint first, then retry
+ // without a radius constraint in case GPS accuracy is worse than expected.
+ const modes=[
+  {name:'จับถนน 100 เมตร',query:'&radiuses=100;100'},
+  {name:'ไม่จำกัดระยะจับถนน',query:''}
+ ];
  const failures=[];
  for(const provider of providers){
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),12000);
-  try{
-   const params='?alternatives=true&steps=true&overview=full&geometries=geojson&continue_straight=true&generate_hints=false&skip_waypoints=false';
-   const response=await fetch(provider.url+params,{signal:controller.signal,cache:'no-store'});
-   if(!response.ok)throw Error('HTTP '+response.status);
-   const data=await response.json();
-   if(data.code!=='Ok'||!Array.isArray(data.routes)||!data.routes.length)throw Error(data.message||data.code||'ไม่พบเส้นทาง');
-   const chosen=data.routes[0];
-   if(!chosen.geometry?.coordinates?.length||!chosen.legs?.length)throw Error('ข้อมูลเส้นทางไม่ครบ');
-   return chosen;
-  }catch(e){
-   const why=e.name==='AbortError'?'หมดเวลารอ 12 วินาที':(e.message||'เชื่อมต่อไม่ได้');
-   failures.push(provider.name+': '+why);
-   console.warn('MapAtlas routing provider failed',provider.name,e);
-  }finally{clearTimeout(timer)}
+  for(const mode of modes){
+   const controller=new AbortController();
+   const timer=setTimeout(()=>controller.abort(),12000);
+   try{
+    const params='?alternatives=true&steps=true&overview=full&geometries=geojson&continue_straight=true&generate_hints=false&skip_waypoints=false'+mode.query;
+    const response=await fetch(provider.url+params,{signal:controller.signal,cache:'no-store'});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const data=await response.json();
+    if(data.code!=='Ok'||!Array.isArray(data.routes)||!data.routes.length)throw Error(data.message||data.code||'ไม่พบเส้นทาง');
+    const chosen=data.routes[0];
+    if(!chosen.geometry?.coordinates?.length||!chosen.legs?.length)throw Error('ข้อมูลเส้นทางไม่ครบ');
+    console.info('MapAtlas route provider succeeded:',provider.name,mode.name);
+    return chosen;
+   }catch(e){
+    const why=e.name==='AbortError'?'หมดเวลารอ 12 วินาที':(e.message||'เชื่อมต่อไม่ได้');
+    failures.push(provider.name+' ('+mode.name+'): '+why);
+    console.warn('MapAtlas routing attempt failed',provider.name,mode.name,e);
+   }finally{clearTimeout(timer)}
+  }
  }
  throw Error(failures.join(' | '));
 }
